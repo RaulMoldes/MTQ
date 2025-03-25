@@ -211,6 +211,8 @@ impl Queue {
             offset += 1 + 8 + 4 + size;
         }
 
+        let _wguard = self._wlock.lock().unwrap(); // Aqui faltaba tambien
+
         // Reemplazar el archivo original con el archivo temporal
         fs::remove_file(&self.file).expect("Error eliminando el archivo original");
         fs::rename(&temp_file_path, &self.file).expect("Error renombrando el archivo temporal");

@@ -1,6 +1,6 @@
 # MTQ - Cola de Mensajes Persistente en Rust
 
-RMQ es una implementación ligera de una cola de mensajes persistente, escrita completamente en Rust utilizando únicamente la biblioteca estándar. Esta cola de mensajes está diseñada para facilitar la comunicación entre microservicios, permitiendo la transmisión de datos de manera desacoplada, confiable y eficiente.
+MTQ es una implementación ligera de una cola de mensajes persistente, escrita completamente en Rust utilizando únicamente la biblioteca estándar. Esta cola de mensajes está diseñada para facilitar la comunicación entre microservicios, permitiendo la transmisión de datos de manera desacoplada, confiable y eficiente.
 
 ## Características
 

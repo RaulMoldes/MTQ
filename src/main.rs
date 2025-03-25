@@ -141,6 +141,84 @@ impl Queue {
         Some((timestamp, message))
     }
 
+
+    
+    fn purge(&self) {
+        // Obtengo el lock de lectura
+        let _rguard = self.rlock.lock().unwrap();
+
+        // Abrir el archivo original en modo lectura
+        let mut file = OpenOptions::new().read(true).open(&self.file).expect("No se pudo abrir el archivo");
+
+        // Crear un archivo temporal para almacenar los mensajes no procesados
+        let temp_file_path = format!("{}.temp", self.file);
+        let mut temp_file = OpenOptions::new().create(true).write(true).open(&temp_file_path)
+            .expect("No se pudo crear el archivo temporal");
+
+        let mut offset = 0u64;
+
+        // Buffers de estado, tamaño y marca de tiempo
+        let mut state_buffer = [0u8; 1]; // buffer para el byte de estado
+        let mut timestamp_buffer = [0u8; 8];
+        let mut size_buffer = [0u8; 4];
+
+        while let Ok(_) = file.seek(SeekFrom::Start(offset)) {
+            // Leer el estado
+            if file.read_exact(&mut state_buffer).is_err() {
+                break; // Fin de archivo
+            }
+
+            let state = u8::from_le_bytes(state_buffer);
+
+            // Si el mensaje tiene estado 1 (procesado), lo omitimos
+            if state == 1 {
+                let mut skip_buffer = [0u8; 8 + 4]; // timestamp + size
+                if file.read_exact(&mut skip_buffer).is_err() {
+                    break;
+                }
+
+                // Saltar el mensaje procesado
+                offset += 1 + 8 + 4 + skip_buffer.len() as u64; 
+                continue;
+            }
+
+            // Leer el timestamp y el tamaño
+            if file.read_exact(&mut timestamp_buffer).is_err() {
+                break; // Fin de archivo
+            }
+
+            if file.read_exact(&mut size_buffer).is_err() {
+                break; // Fin de archivo
+            }
+
+            let size = u32::from_le_bytes(size_buffer) as u64;
+
+            // Copiar el mensaje no procesado al archivo temporal
+            temp_file.write_all(&state_buffer).expect("Error escribiendo estado");
+            temp_file.write_all(&timestamp_buffer).expect("Error escribiendo timestamp");
+            temp_file.write_all(&size_buffer).expect("Error escribiendo tamaño");
+
+            // Leer el mensaje y escribirlo en el archivo temporal
+            let mut msg_bytes = vec![0; size as usize];
+            if file.read_exact(&mut msg_bytes).is_err() {
+                break; // Fin de archivo
+            }
+            temp_file.write_all(&msg_bytes).expect("Error escribiendo mensaje");
+
+            // Actualizar el offset para el siguiente mensaje
+            offset += 1 + 8 + 4 + size;
+        }
+
+        // Reemplazar el archivo original con el archivo temporal
+        fs::remove_file(&self.file).expect("Error eliminando el archivo original");
+        fs::rename(&temp_file_path, &self.file).expect("Error renombrando el archivo temporal");
+
+        println!("Purga completada, archivo actualizado.");
+    }
+
+    
+
+  
     
 
 }
@@ -180,6 +258,97 @@ fn main() {
 
     // Simulamos un pequeño retraso para permitir que el consumidor termine de procesar.
     thread::sleep(Duration::from_secs(2));
+
+
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*; // Importa todo lo que está en el scope global (tu implementación)
+
+    use std::{fs, thread, time::Duration};
+    use std::path::Path;
+
+    // Test para la función enqueue
+    #[test]
+    fn test_enqueue() {
+        // Crear una ruta temporal para el archivo
+        let file_path = "test_queue_1.bin";
+
+        let queue = Queue::new(file_path);
+
+        // Probar encolar un mensaje
+        let message = "Mensaje de prueba";
+        assert!(queue.enqueue(message).is_ok(), "No se pudo encolar el mensaje");
+
+        // Verificar que el archivo tiene datos después de encolar
+        assert!(Path::new(file_path).exists(), "El archivo de mensajes no se creó");
+        let file_content = fs::read(file_path).unwrap();
+        assert!(file_content.len() > 0, "El archivo está vacío después de encolar un mensaje");
+
+        // Limpiar el archivo después de la prueba
+        fs::remove_file(file_path).unwrap();
+    }
+
+    // Test para la función dequeue
+    #[test]
+    fn test_dequeue() {
+        // Crear una ruta temporal para el archivo
+        let file_path = "test_queue_2.bin";
+
+        let queue = Queue::new(file_path);
+
+        // Encolar algunos mensajes
+        let messages = vec!["Mensaje 1", "Mensaje 2", "Mensaje 3"];
+        for msg in messages {
+            queue.enqueue(msg).unwrap();
+        }
+
+        // Probar desencolar
+        if let Some((timestamp, message)) = queue.dequeue(0) {
+            assert_eq!(message, "Mensaje 1", "El primer mensaje no es el esperado");
+            println!("Mensaje desencolado: {} (timestamp: {})", message, timestamp);
+        } else {
+            panic!("No se pudo desencolar el mensaje");
+        }
+
+        // Limpiar el archivo después de la prueba
+        fs::remove_file(file_path).unwrap();
+    }
+
+    // Test para la función purge
+    #[test]
+    fn test_purge() {
+        // Crear una ruta temporal para el archivo
+        let file_path = "test_queue_3.bin";
+
+        let queue = Queue::new(file_path);
+
+        // Encolar algunos mensajes
+        let messages = vec!["Mensaje 1", "Mensaje 2", "Mensaje 3"];
+        for msg in messages {
+            queue.enqueue(msg).unwrap();
+        }
+        
+        
+        let file_content_before = fs::read(file_path).unwrap();
+        // Dejar que un mensaje sea procesado (cambiando su estado a 1)
+        if let Some((_, _)) = queue.dequeue(0) {
+            // Simular la purga, eliminando los mensajes procesados (con estado 1)
+            queue.purge();
+        }
+
+        // Verificar que el archivo tiene solo los mensajes no procesados
+        let file_content = fs::read(file_path).unwrap();
+        assert!(file_content.len() < file_content_before.len(), "El archivo no se ha purgado");
+        assert!(file_content.len() > 0, "El archivo está vacío después de purgar");
+        println!("Archivo después de purgar tiene {} bytes", file_content.len());
+
+        // Limpiar el archivo después de la prueba
+        fs::remove_file(file_path).unwrap();
+    }
 
 
 }

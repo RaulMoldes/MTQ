@@ -131,6 +131,8 @@ impl Queue {
             return None; // Error al leer el mensaje
         }
 
+        let _wguard = self.wlock.lock().unwrap(); // añadido para bloquear la escritura hasta que termine
+
         let new_state = 1u8; // Marcamos como procesado
         file.seek(SeekFrom::Start(offset)).expect("Error posicionando el puntero del buffer para actualizar el estado");
         file.write_all(&new_state.to_le_bytes()).expect("Error actualizando el estado del mensaje");

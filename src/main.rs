@@ -16,7 +16,7 @@ use std::fs::OpenOptions;
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use close_file::Closable;
+use std::fs;
 
 const MAX_MESSAGE_SIZE: usize = 256 * 1024; // 256 KB
 

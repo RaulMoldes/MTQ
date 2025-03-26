@@ -74,7 +74,7 @@ impl Queue {
         file.write_all(&timestamp.to_le_bytes()).expect("Error escribiendo timestamp");
         file.write_all(&(size as u32).to_le_bytes()).expect("Error escribiendo tamaño");
         file.write_all(mbytes).expect("Error escribiendo mensaje");
-
+        file.close();
         Ok(())
     }
 
@@ -139,7 +139,7 @@ impl Queue {
         
         // Convertir el mensaje en String
         let message = String::from_utf8(msg_bytes).ok()?;
-
+        file.close();
         Some((timestamp, message))
     }
 
@@ -216,7 +216,7 @@ impl Queue {
         // Reemplazar el archivo original con el archivo temporal
         fs::remove_file(&self.file).expect("Error eliminando el archivo original");
         fs::rename(&temp_file_path, &self.file).expect("Error renombrando el archivo temporal");
-
+        
         println!("Purga completada, archivo actualizado.");
     }
 

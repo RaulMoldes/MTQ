@@ -16,7 +16,7 @@ use std::fs::OpenOptions;
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-
+use close_file::Closable;
 
 const MAX_MESSAGE_SIZE: usize = 256 * 1024; // 256 KB
 
@@ -74,7 +74,7 @@ impl Queue {
         file.write_all(&timestamp.to_le_bytes()).expect("Error escribiendo timestamp");
         file.write_all(&(size as u32).to_le_bytes()).expect("Error escribiendo tamaño");
         file.write_all(mbytes).expect("Error escribiendo mensaje");
-        file.close();
+        file.flush().expect("Error al vaciar el buffer");
         Ok(())
     }
 
@@ -136,10 +136,11 @@ impl Queue {
         let new_state = 1u8; // Marcamos como procesado
         file.seek(SeekFrom::Start(offset)).expect("Error posicionando el puntero del buffer para actualizar el estado");
         file.write_all(&new_state.to_le_bytes()).expect("Error actualizando el estado del mensaje");
-        
+        file.flush().expect("Error al vaciar el buffer");
+
         // Convertir el mensaje en String
         let message = String::from_utf8(msg_bytes).ok()?;
-        file.close();
+        
         Some((timestamp, message))
     }
 
@@ -211,7 +212,7 @@ impl Queue {
             offset += 1 + 8 + 4 + size;
         }
 
-        let _wguard = self._wlock.lock().unwrap(); // Aqui faltaba tambien
+        let _wguard = self.wlock.lock().unwrap(); // Aqui faltaba tambien
 
         // Reemplazar el archivo original con el archivo temporal
         fs::remove_file(&self.file).expect("Error eliminando el archivo original");

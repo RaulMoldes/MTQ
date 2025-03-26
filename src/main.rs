@@ -16,7 +16,8 @@ use std::fs::OpenOptions;
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::fs;
+use std::net::{TcpListener, TcpStream};
+use std::{fs, env, thread};
 
 const MAX_MESSAGE_SIZE: usize = 256 * 1024; // 256 KB
 
@@ -146,7 +147,7 @@ impl Queue {
 
 
     
-    fn purge(&self) {
+    fn purge(&self) -> Result<(), &'static str>{
         // Obtengo el lock de lectura
         let _rguard = self.rlock.lock().unwrap();
 
@@ -219,6 +220,7 @@ impl Queue {
         fs::rename(&temp_file_path, &self.file).expect("Error renombrando el archivo temporal");
         
         println!("Purga completada, archivo actualizado.");
+        Ok(())
     }
 
     
@@ -229,49 +231,74 @@ impl Queue {
 }
 
 
-use std::{thread, time::Duration};
+/// Manejar la conexión de un cliente
+fn handle_client(mut stream: TcpStream, queue: Arc<Queue>) {
+    let mut buffer = [0; 1024];
+    if let Ok(bytes_read) = stream.read(&mut buffer) {
+        let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+
+        let response = if request.starts_with("enqueue ") {
+            let message = request.trim_start_matches("enqueue ").trim();
+            match queue.enqueue(message) {
+                Ok(_) => "Mensaje agregado\n".to_string(),
+                Err(e) => format!("Error: {}\n", e),
+            }
+        } else if request.starts_with("dequeue") {
+            match queue.dequeue(0) {
+                Some((timestamp, msg)) => format!("Mensaje: {}\n", msg),
+                None => "La cola está vacía\n".to_string(),
+            }
+        } else if request.starts_with("purge") {
+            match queue.purge() {
+                Ok(_) => "Cola purgada\n".to_string(),
+                Err(e) => format!("Error: {}\n", e),
+            }
+        } else {
+            "Comando no válido\n".to_string()
+        };
+
+        let _ = stream.write_all(response.as_bytes());
+    }
+}
+
+/// Iniciar el servidor TCP
+fn start_server(port: &str, queue_file: &str) {
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).expect("No se pudo iniciar el servidor");
+    let queue = Arc::new(Queue::new(queue_file)); // Aqu uso Arc para permitir que la cola sea usada por multiples clientes.
+    // Arc es el acrónimo de Atomic Reference Counter, permite que la cola sea usada por múltiples hilos.
+    // No es necesario usar Mutex además de Arc ya que ya se manejan las posbiles condiciones de carrera dentro de la propia cola.
+
+    println!("Servidor escuchando en el puerto {}", port);
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                let queue_clone = Arc::clone(&queue);
+                thread::spawn(move || {
+                    handle_client(stream, queue_clone);
+                });
+            }
+            Err(e) => eprintln!("Error al aceptar conexión: {}", e),
+        }
+    }
+}
 
 fn main() {
-    // Crear una nueva instancia de la cola con un archivo para almacenar los mensajes.
-    let queue = Queue::new("message_queue.bin");
+    let args: Vec<String> = env::args().collect();
+    let port = args.get(1).cloned().unwrap_or_else(|| "8080".to_string());
+    let queue_file = args.get(2).cloned().unwrap_or_else(|| "queue.bin".to_string());
 
-    // Encolar algunos mensajes.
-    let messages = vec!["Mensaje 1", "Mensaje 2", "Mensaje 3", "Mensaje 4"];
-    
-    for msg in messages {
-        if let Err(e) = queue.enqueue(msg) {
-            eprintln!("Error al encolar el mensaje: {}", e);
-        } else {
-            println!("Mensaje encolado: {}", msg);
-        }
-    }
+    println!("Iniciando servidor en puerto: {}", &port);
+    println!("Archivo de cola: {}", &queue_file);
 
-    // Simular un pequeño retraso para que los mensajes sean encolados antes de desencolar.
-    thread::sleep(Duration::from_secs(2));
-
-    loop {
-        match queue.dequeue(0) {
-            Some((timestamp, message)) => {
-                println!("Mensaje desencolado: {} (timestamp: {})", message, timestamp);
-            },
-            None => {
-                println!("No hay más mensajes en la cola.");
-                break;
-            }
-        }
-    }
-
-    // Simulamos un pequeño retraso para permitir que el consumidor termine de procesar.
-    thread::sleep(Duration::from_secs(2));
-
-
+    start_server(&port, &queue_file);
 }
 
 
 
 #[cfg(test)]
 mod tests {
-    use super::*; // Importa todo lo que está en el scope global (tu implementación)
+    use super::*; // Importa todo lo que está en el scope global
 
     use std::{fs, thread, time::Duration};
     use std::path::Path;

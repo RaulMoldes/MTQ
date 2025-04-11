@@ -33,12 +33,12 @@ cargo test
 4. Compila e inicia el servidor local:
 
 ```bash
-cargo run -- <archivo-de-la-cola> <puerto>
+cargo run -- <puerto> <archivo-de-la-cola> 
 ```
 
 Ejemplo:
 ```bash
-cargo run -- "my_queue.bin" 9090
+cargo run -- 9090 "my_queue.bin" 
 ```
 
 5. Tipos de peticiones posibles:
@@ -62,3 +62,5 @@ echo -n "dequeue" | nc -q 1 localhost <puerto>
 ```bash
 echo -n "purge" | nc -q 1 localhost <puerto>
 ```
+
+**Importante**: nunca ejecutar purge antes de hacer enqueue o dequeue, produciría un error ya que no se encontraría el archivo.
